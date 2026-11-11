@@ -7,7 +7,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Home page
 home = st.Page(
     "home_content.py",
     title="Home",
@@ -15,25 +14,36 @@ home = st.Page(
     default=True
 )
 
-# Literature Research page
 literature = st.Page(
     "pages/1_literature_research.py",
     title="Literature Research",
     icon=":material/menu_book:"
 )
 
-# Literature Comparison page
 comparison = st.Page(
     "pages/2_literature_comparison.py",
     title="Literature Comparison",
     icon=":material/table_chart:"
 )
 
-# Navigation
+synthesis = st.Page(
+    "pages/4_literature_synthesis.py",
+    title="Literature Synthesis",
+    icon=":material/auto_stories:"
+)
+
+research_gaps = st.Page(
+    "pages/3_research_gap_analysis.py",
+    title="Research Gap Analysis",
+    icon=":material/psychology:"
+)
+
 navigation = st.navigation([
     home,
     literature,
-    comparison
+    comparison,
+    synthesis,
+    research_gaps
 ])
 
 navigation.run()

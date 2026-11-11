@@ -71,21 +71,23 @@ if len(selected_ids) >= 2:
 
         try:
             with st.spinner(
-                "Analysing and comparing selected papers..."
+                "Analysing selected papers..."
             ):
 
                 rows, evidence = build_literature_matrix(
                     selected_records
                 )
 
-            # Store generated results
             st.session_state["comparison_rows"] = rows
-
             st.session_state["comparison_evidence"] = evidence
-
             st.session_state["comparison_ids"] = (
                 selected_ids.copy()
             )
+
+            st.session_state["comparison_paper_order"] = [
+                paper["id"]
+                for paper in selected_records
+            ]
 
         except Exception as error:
             st.exception(error)
@@ -103,49 +105,39 @@ else:
 show_matrix = (
     len(selected_ids) >= 2
     and "comparison_rows" in st.session_state
+    and "comparison_evidence" in st.session_state
+    and "comparison_paper_order" in st.session_state
     and st.session_state.get("comparison_ids") == selected_ids
 )
 
 if show_matrix:
 
-    st.divider()
+    rows = st.session_state["comparison_rows"]
+    evidence = st.session_state["comparison_evidence"]
+    paper_ids = st.session_state["comparison_paper_order"]
 
+    st.divider()
     st.subheader("Literature Comparison Matrix")
 
-    # Convert comparison results to DataFrame
-    matrix_df = pd.DataFrame(
-        st.session_state["comparison_rows"]
-    )
-
-    # Display papers as columns and categories as rows
+    matrix_df = pd.DataFrame(rows)
     matrix_df = matrix_df.set_index("Paper").T
-
     matrix_df.index.name = "Comparison Category"
 
-    # Configure paper columns
-    column_config = {
-        paper: st.column_config.TextColumn(
-            paper,
-            width="large"
-        )
-        for paper in matrix_df.columns
-    }
-
-    # Display comparison matrix
     st.dataframe(
         matrix_df,
         use_container_width=True,
         height=500,
-        column_config=column_config
+        column_config={
+            paper: st.column_config.TextColumn(
+                paper,
+                width="large"
+            )
+            for paper in matrix_df.columns
+        }
     )
 
-
-    # ======================================
-    # 5. DOWNLOAD COMPARISON MATRIX
-    # ======================================
-
     st.download_button(
-        label="Download matrix as CSV",
+        "Download matrix as CSV",
         data=matrix_df.to_csv().encode("utf-8-sig"),
         file_name="literature_comparison_matrix.csv",
         mime="text/csv"
@@ -153,37 +145,35 @@ if show_matrix:
 
 
     # ======================================
-    # 6. VIEW SUPPORTING EVIDENCE
+    # 5. SUPPORTING EVIDENCE
     # ======================================
 
     with st.expander("View supporting evidence"):
 
-        evidence = st.session_state.get(
-            "comparison_evidence", {}
-        )
+        for paper_index, paper_id in enumerate(
+            paper_ids,
+            start=1
+        ):
 
-        for paper_id, documents in evidence.items():
+            documents = evidence.get(paper_id, [])
 
-            for index, doc in enumerate(
+            st.markdown(
+                f"### Paper {paper_index}: "
+                f"{rows[paper_index - 1]['Paper']}"
+            )
+
+            for source_number, doc in enumerate(
                 documents,
                 start=1
             ):
 
-                title = doc.metadata.get(
-                    "title",
-                    str(paper_id)
-                )
-
                 page = doc.metadata.get(
-                    "page_number",
-                    "Unknown"
+                    "page_number", "Unknown"
                 )
 
                 st.markdown(
-                    f"**{title} — "
-                    f"Source {index}, Page {page}**"
+                    f"**Source {source_number} — Page {page}**"
                 )
 
                 st.write(doc.page_content)
-
                 st.divider()

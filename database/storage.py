@@ -1,10 +1,11 @@
+
 import hashlib
 
 from database.supabase import get_supabase_client
 from processing.pdf_parser import extract_pdf_pages
 from processing.chunking import create_chunks
+from processing.metadata_extractor import extract_paper_metadata
 from rag.embeddings import embed_chunks
-from io import BytesIO
 
 
 COLLECTION_NAME = "My Research Library"
@@ -37,7 +38,7 @@ def get_or_create_collection():
     return response.data[0]["id"]
 
 
-def save_research_paper(uploaded_file):
+def save_research_paper(uploaded_file, metadata=None):
     supabase = get_supabase_client()
 
     file_bytes = uploaded_file.getvalue()
@@ -45,7 +46,6 @@ def save_research_paper(uploaded_file):
 
     collection_id = get_or_create_collection()
 
-    # Check whether the PDF was previously uploaded
     existing = (
         supabase.table("documents")
         .select("id, title")
@@ -62,8 +62,25 @@ def save_research_paper(uploaded_file):
         }
 
     # Extract PDF text
-
     pages = extract_pdf_pages(uploaded_file)
+
+    # Use reviewed metadata if provided.
+    # Otherwise, extract candidate metadata automatically.
+    if metadata is None:
+        metadata = extract_paper_metadata(pages)
+
+    title = metadata.get("title") or uploaded_file.name
+    authors = metadata.get("authors") or []
+    year = metadata.get("publication_year")
+
+    if not isinstance(authors, list):
+        raise ValueError("Authors must be a list of names.")
+
+    if year is not None:
+        if isinstance(year, bool) or not isinstance(year, int):
+            raise ValueError(
+                "Publication year must be an integer or None."
+            )
 
     # Split text into chunks
     chunks = create_chunks(pages)
@@ -74,13 +91,15 @@ def save_research_paper(uploaded_file):
     # Generate embeddings
     embedded_chunks = embed_chunks(chunks)
 
-    # Create document record
+    # Create document record with bibliographic metadata
     document_response = (
         supabase.table("documents")
         .insert({
             "collection_id": collection_id,
             "document_type": "research_paper",
-            "title": uploaded_file.name,
+            "title": title,
+            "authors": authors,
+            "publication_year": year,
             "filename": uploaded_file.name,
             "file_hash": file_hash,
         })
@@ -89,19 +108,17 @@ def save_research_paper(uploaded_file):
 
     document_id = document_response.data[0]["id"]
 
-    # Prepare chunk records
     records = []
 
     for chunk in embedded_chunks:
         records.append({
             "document_id": document_id,
-            "content": chunk["content"],
+            "content": chunk["content"].replace("\x00", ""),
             "page_number": chunk["page_number"],
             "chunk_index": chunk["chunk_index"],
             "embedding": chunk["embedding"],
         })
 
-    # Insert in batches
     try:
         batch_size = 20
 
@@ -113,7 +130,6 @@ def save_research_paper(uploaded_file):
             ).execute()
 
     except Exception:
-        # Remove partial document and its chunks
         supabase.table("documents").delete().eq(
             "id", document_id
         ).execute()
@@ -124,17 +140,48 @@ def save_research_paper(uploaded_file):
         "document_id": document_id,
         "pages": len(pages),
         "chunks": len(records),
+        "metadata": {
+            "title": title,
+            "authors": authors,
+            "publication_year": year,
+        }
     }
+
 
 def list_research_papers():
     supabase = get_supabase_client()
 
     response = (
         supabase.table("documents")
-        .select("id, title, filename")
+        .select(
+            "id, title, filename, authors, publication_year"
+        )
         .eq("document_type", "research_paper")
         .order("created_at", desc=True)
         .execute()
     )
 
     return response.data
+
+
+def update_paper_metadata(document_id, metadata):
+    supabase = get_supabase_client()
+
+    updates = {
+        "title": metadata["title"],
+        "authors": metadata["authors"],
+        "publication_year": metadata["publication_year"],
+    }
+
+    response = (
+        supabase.table("documents")
+        .update(updates)
+        .eq("id", document_id)
+        .eq("document_type", "research_paper")
+        .execute()
+    )
+
+    if not response.data:
+        raise ValueError("Research paper not found.")
+
+    return response.data[0]
