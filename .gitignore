@@ -1,0 +1,30 @@
+# Environment variables and credentials
+.env
+.env.*
+
+# Mac files
+.DS_Store
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+# Streamlit credentials
+.streamlit/secrets.toml
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Local vector databases and uploaded papers
+chroma_db/
+uploads/
+
+# Local databases
+*.db
+*.sqlite3
