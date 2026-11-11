@@ -3,7 +3,10 @@ import re
 
 from langchain_core.prompts import ChatPromptTemplate
 from rag.langchain_retriever import SupabasePaperRetriever
+from rag.reranker import rerank_documents
 from llm.model import get_model
+from rag.evidence_verifier import verify_answer
+from rag.evidence_recovery import recover_evidence
 
 
 PROMPT = ChatPromptTemplate.from_messages([
@@ -14,16 +17,16 @@ PROMPT = ChatPromptTemplate.from_messages([
 Answer the user's question using only the retrieved passages.
 
 Rules:
-1. Discuss each selected paper separately, using its document title.
-2. For methodology questions, describe the research design,
-   data, sample, and analytical methods only when supported.
-3. Do not infer a paper's methodology from references to
-   other studies or from general discussion passages.
-4. Cite factual statements using [Source 1], [Source 2], etc.
+1. Discuss each selected paper separately, using its title.
+2. Describe methodology, data, sample, and analytical methods
+   only when supported by the supplied passages.
+3. Do not infer a paper's methodology from descriptions of
+   other studies.
+4. Cite factual claims using [Source 1], [Source 2], etc.
 5. Every citation must refer to a supplied source.
-6. If evidence is insufficient for a paper, state this clearly.
+6. If evidence is insufficient for a paper, state this.
 7. Do not invent findings, methods, citations, or references.
-8. Distinguish what the authors did from what they cited.
+8. Distinguish the authors' research from studies they cite.
 
 Selected papers:
 {paper_list}
@@ -43,6 +46,7 @@ def validate_citations(answer, documents):
     )
 
     valid_numbers = set(range(1, len(documents) + 1))
+
     invalid = [
         int(number)
         for number in numbers
@@ -67,19 +71,28 @@ def answer_question(question, document_ids):
     documents = []
     paper_names = []
 
-    # Retrieve evidence independently for each paper.
     for document_id in dict.fromkeys(document_ids):
+
+        # Retrieve 20 candidate passages from each paper.
         retriever = SupabasePaperRetriever(
             document_ids=[document_id],
+            top_k=20
+        )
+
+        candidates = retriever.invoke(question)
+
+        # Keep the five highest-ranked passages per paper.
+        ranked_documents = rerank_documents(
+            question=question,
+            documents=candidates,
             top_k=5
         )
 
-        paper_documents = retriever.invoke(question)
-        documents.extend(paper_documents)
+        documents.extend(ranked_documents)
 
-        if paper_documents:
+        if candidates:
             paper_names.append(
-                paper_documents[0].metadata.get(
+                candidates[0].metadata.get(
                     "title", str(document_id)
                 )
             )
@@ -115,13 +128,15 @@ def answer_question(question, document_ids):
     })
 
     answer = response.content
+
     if not isinstance(answer, str):
         answer = str(answer)
 
-    citation_check = validate_citations(answer, documents)
 
     return {
         "answer": answer,
         "sources": documents,
-        "citation_check": citation_check
+        "citation_check": validate_citations(
+            answer, documents
+        )
     }
